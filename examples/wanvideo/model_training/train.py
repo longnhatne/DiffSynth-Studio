@@ -43,7 +43,7 @@ class WanTrainingModule(DiffusionTrainingModule):
         
     def forward_preprocess(self, data):
         # CFG-sensitive parameters
-        inputs_posi = {"prompt": data["prompt"]}
+        inputs_posi = {"prompt": data["prompt"] if "prompt" in data else ""}
         inputs_nega = {}
         
         # CFG-unsensitive parameters
@@ -74,7 +74,7 @@ class WanTrainingModule(DiffusionTrainingModule):
             elif extra_input == "end_image":
                 inputs_shared["end_image"] = data["video"][-1]
             elif extra_input == "reference_image" or extra_input == "vace_reference_image":
-                inputs_shared[extra_input] = data[extra_input][0]
+                inputs_shared[extra_input] = data[extra_input]
             else:
                 inputs_shared[extra_input] = data[extra_input]
         

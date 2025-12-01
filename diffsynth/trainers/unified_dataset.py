@@ -325,7 +325,11 @@ class UnifiedDataset(torch.utils.data.Dataset):
                     if key in self.special_operator_map:
                         data[key] = self.special_operator_map[key](data[key])
                     elif key in self.data_file_keys:
-                        data[key] = self.main_data_operator(data[key])
+                        if data[key].startswith('['):
+                            list_items = json.loads(data[key])
+                            data[key] = [self.main_data_operator(item) for item in list_items]
+                        else:
+                            data[key] = self.main_data_operator(data[key])
         return data
 
     def __len__(self):
