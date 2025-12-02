@@ -17,37 +17,43 @@ pipe = WanVideoPipeline.from_pretrained(
 
 pipe.enable_vram_management()
 
-dataset_snapshot_download(
-    dataset_id="DiffSynth-Studio/examples_in_diffsynth",
-    local_dir="./",
-    allow_file_pattern=["data/examples/wan/depth_video.mp4", "data/examples/wan/cat_fightning.jpg"]
-)
+# # Depth video -> Video
+control_video = VideoData("data/f5_multiVACE/depth/00149_depth.mp4", height=480, width=832)
+num_frames = len(control_video)
 
-# Depth video -> Video
-control_video = VideoData("data/examples/wan/depth_video.mp4", height=480, width=832)
-video = pipe(
-    prompt="两只可爱的橘猫戴上拳击手套，站在一个拳击台上搏斗。",
-    negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
-    vace_video=control_video,
-    seed=1, tiled=True
-)
-save_video(video, "video1.mp4", fps=15, quality=5)
+char1_mask = VideoData("data/f5_multiVACE/masks/00149_mathilda_mask.mp4", height=480, width=832)
+char2_mask = VideoData("data/f5_multiVACE/masks/00149_lambert_mask.mp4", height=480, width=832)
 
-# Reference image -> Video
-video = pipe(
-    prompt="两只可爱的橘猫戴上拳击手套，站在一个拳击台上搏斗。",
-    negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
-    vace_reference_image=Image.open("data/examples/wan/cat_fightning.jpg").resize((832, 480)),
-    seed=1, tiled=True
-)
-save_video(video, "video2.mp4", fps=15, quality=5)
+char1_reference_image = Image.open("data/f5_multiVACE/character_images/mathilda/6.png").resize((832, 480))
+char2_reference_image = Image.open("data/f5_multiVACE/character_images/lambert/1.png").resize((832, 480))
+
+control_video = [control_video]
+char_masks = [char1_mask, char2_mask]
+char_reference_images = [char1_reference_image, char2_reference_image]
+# video = pipe(
+#     prompt="两只可爱的橘猫戴上拳击手套，站在一个拳击台上搏斗。",
+#     negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+#     vace_video=control_video,
+#     seed=1, tiled=True
+# )
+# save_video(video, "video1.mp4", fps=15, quality=5)
+
+# # Reference image -> Video
+# video = pipe(
+#     prompt="两只可爱的橘猫戴上拳击手套，站在一个拳击台上搏斗。",
+#     negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+#     vace_reference_image=Image.open("data/examples/wan/cat_fightning.jpg").resize((832, 480)),
+#     seed=1, tiled=True
+# )
+# save_video(video, "video2.mp4", fps=15, quality=5)
 
 # Depth video + Reference image -> Video
 video = pipe(
     prompt="两只可爱的橘猫戴上拳击手套，站在一个拳击台上搏斗。",
     negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
     vace_video=control_video,
-    vace_reference_image=Image.open("data/examples/wan/cat_fightning.jpg").resize((832, 480)),
-    seed=1, tiled=True
+    vace_reference_image=char_reference_images,
+    vace_video_mask=char_masks,
+    seed=1, tiled=True, num_frames=num_frames
 )
-save_video(video, "video3.mp4", fps=15, quality=5)
+save_video(video, "video_multiVACE.mp4", fps=15, quality=5)

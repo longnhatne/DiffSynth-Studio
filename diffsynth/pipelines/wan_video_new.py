@@ -569,7 +569,7 @@ class WanVideoPipeline(BasePipeline):
         # VACE (TODO: remove it)
         if vace_reference_image is not None or (animate_pose_video is not None and animate_face_video is not None):
             if vace_reference_image is not None and isinstance(vace_reference_image, list):
-                f = len(vace_reference_image)
+                f = 1 #len(vace_reference_image)
             else:
                 f = 1
             inputs_shared["latents"] = inputs_shared["latents"][:, :, f:]
