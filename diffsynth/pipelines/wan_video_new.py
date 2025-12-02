@@ -20,7 +20,7 @@ from ..models.wan_video_dit_s2v import rope_precompute
 from ..models.wan_video_text_encoder import WanTextEncoder, T5RelativeEmbedding, T5LayerNorm
 from ..models.wan_video_vae import WanVideoVAE, RMS_norm, CausalConv3d, Upsample
 from ..models.wan_video_image_encoder import WanImageEncoder
-from ..models.wan_video_vace import VaceWanModel
+from ..models.wan_video_vace import VaceWanModel, VaceFuser
 from ..models.wan_video_motion_controller import WanMotionControllerModel
 from ..models.wan_video_animate_adapter import WanAnimateAdapter
 from ..models.wan_video_mot import MotWanModel
@@ -49,10 +49,12 @@ class WanVideoPipeline(BasePipeline):
         self.motion_controller: WanMotionControllerModel = None
         self.vace: VaceWanModel = None
         self.vace2: VaceWanModel = None
+        self.vace_fuser: VaceFuser = None
+        self.vace_fuser2: VaceFuser = None
         self.vap: MotWanModel = None
         self.animate_adapter: WanAnimateAdapter = None
-        self.in_iteration_models = ("dit", "motion_controller", "vace", "animate_adapter", "vap")
-        self.in_iteration_models_2 = ("dit2", "motion_controller", "vace2", "animate_adapter", "vap")
+        self.in_iteration_models = ("dit", "motion_controller", "vace", "vace_fuser", "animate_adapter", "vap")
+        self.in_iteration_models_2 = ("dit2", "motion_controller", "vace2", "vace_fuser2", "animate_adapter", "vap")
         self.unit_runner = PipelineUnitRunner()
         self.units = [
             WanVideoUnit_ShapeChecker(),
@@ -82,6 +84,9 @@ class WanVideoPipeline(BasePipeline):
             WanVideoPostUnit_S2V(),
         ]
         self.model_fn = model_fn_wan_video
+
+        if self.vace_fuser is None:
+            self.vace_fuser = VaceFuser().to(torch_dtype)
     
     def load_lora(
         self,
@@ -1379,6 +1384,7 @@ def model_fn_wan_video(
     dit: WanModel,
     motion_controller: WanMotionControllerModel = None,
     vace: VaceWanModel = None,
+    vace_fuser: VaceFuser = None,
     vap: MotWanModel = None,
     animate_adapter: WanAnimateAdapter = None,
     latents: torch.Tensor = None,
@@ -1554,16 +1560,24 @@ def model_fn_wan_video(
         tea_cache_update = tea_cache.check(dit, x, t_mod)
     else:
         tea_cache_update = False
+
+    # if vace_fuser is not None:
     
     # vace_context = vace_context[0]
     # print('x', x.shape, 'vace_context', vace_context.shape)
         
     if vace_context is not None:
-        vace_hints = vace(
-            x, vace_context, context, t_mod, freqs,
-            use_gradient_checkpointing=use_gradient_checkpointing,
-            use_gradient_checkpointing_offload=use_gradient_checkpointing_offload
-        )
+        vace_hints = []
+        for vace_context_ in vace_context:
+            vace_hints_ = vace(
+                x, vace_context_, context, t_mod, freqs,
+                use_gradient_checkpointing=use_gradient_checkpointing,
+                use_gradient_checkpointing_offload=use_gradient_checkpointing_offload
+            )
+            vace_hints.append(vace_hints_)
+
+        vace_hints = vace_fuser(vace_hints)
+
     
     # blocks
     if use_unified_sequence_parallel:

@@ -11,6 +11,6 @@ accelerate launch examples/wanvideo/model_training/train.py \
   --num_epochs 2 \
   --remove_prefix_in_ckpt "pipe.vace." \
   --output_path "./models/train/Wan2.1-VACE-1.3B_full" \
-  --trainable_models "vace" \
+  --trainable_models "vace_fuser" \
   --extra_inputs "vace_video,vace_video_mask,vace_reference_image" \
   # --use_gradient_checkpointing_offload

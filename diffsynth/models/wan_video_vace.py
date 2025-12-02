@@ -90,7 +90,23 @@ class VaceWanModel(torch.nn.Module):
     def state_dict_converter():
         return VaceWanModelDictConverter()
     
-    
+
+
+class VaceFuser(torch.nn.Module):
+    def __init__(
+        self,
+    ):
+        super().__init__()
+        self.vace_hints_fused = torch.nn.Parameter(torch.ones(1))
+
+    def forward(
+        self, vace_hints_list: list[torch.Tensor],
+    ):
+        print('Fusing vace hints...')
+        vace_hints_fused = [self.vace_hints_fused * sum(tensors) for tensors in zip(*vace_hints_list)]
+        return vace_hints_fused
+
+
 class VaceWanModelDictConverter:
     def __init__(self):
         pass
