@@ -91,21 +91,66 @@ class VaceWanModel(torch.nn.Module):
         return VaceWanModelDictConverter()
     
 
+'''===========VACE Fuser==========='''
+import torch
+import torch.nn as nn
+from .wan_video_dit import RMSNorm, AttentionModule
+from .wan_video_dit import flash_attention
+
+class CrossAttention(nn.Module):
+    def __init__(self, dim: int, num_heads: int, eps: float = 1e-6):
+        super().__init__()
+        self.dim = dim
+        self.num_heads = num_heads
+        self.head_dim = dim // num_heads
+
+        self.q = nn.Linear(dim, dim)
+        self.k = nn.Linear(dim, dim)
+        self.v = nn.Linear(dim, dim)
+        self.o = nn.Linear(dim, dim)
+        self.norm_q = RMSNorm(dim, eps=eps)
+        self.norm_k = RMSNorm(dim, eps=eps)
+            
+        self.attn = AttentionModule(self.num_heads)
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor):
+        x_ori = x
+        q = self.norm_q(self.q(x))
+        k = self.norm_k(self.k(y))
+        v = self.v(y)
+        x = self.attn(q, k, v)
+        return self.o(x) + x_ori
+
+class VaceFuserBlock(torch.nn.Module):
+    def __init__(self, num_vace_blocks: int, dim: int, num_heads: int, eps: float = 1e-6):
+        super().__init__()
+        self.vace_hints_fuser = nn.ModuleList([CrossAttention(dim, num_heads, eps) for _ in range(num_vace_blocks)])
+
+    def forward(self, vace_hints_list_a, vace_hints_list_b):
+        fused_vace_hints = []
+        for i in range(len(vace_hints_list_a)):
+            x = self.vace_hints_fuser[i](vace_hints_list_a[i], vace_hints_list_b[i])
+            fused_vace_hints.append(x)
+        return fused_vace_hints
 
 class VaceFuser(torch.nn.Module):
     def __init__(
         self,
+        num_vace_blocks: int,
+        dim: int,
+        num_heads: int,
+        eps: float = 1e-6,
     ):
         super().__init__()
-        self.vace_hints_fused = torch.nn.Parameter(torch.ones(1))
+        self.fuser = VaceFuserBlock(num_vace_blocks, dim, num_heads, eps)
 
     def forward(
         self, vace_hints_list: list[torch.Tensor],
     ):
-        print('Fusing vace hints...')
-        vace_hints_fused = [self.vace_hints_fused * sum(tensors) for tensors in zip(*vace_hints_list)]
-        return vace_hints_fused
-
+        x = vace_hints_list[-1]
+        for i in range(len(vace_hints_list)-1):
+            x = self.fuser(x, vace_hints_list[i])
+        return x
 
 class VaceWanModelDictConverter:
     def __init__(self):

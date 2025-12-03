@@ -3,6 +3,7 @@ from diffsynth import load_state_dict
 from diffsynth.pipelines.wan_video_new import WanVideoPipeline, ModelConfig
 from diffsynth.trainers.utils import DiffusionTrainingModule, ModelLogger, launch_training_task, wan_parser
 from diffsynth.trainers.unified_dataset import UnifiedDataset, LoadVideo, LoadAudio, ImageCropAndResize, ToAbsolutePath
+from diffsynth.models.wan_video_vace import VaceFuser
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
@@ -24,8 +25,15 @@ class WanTrainingModule(DiffusionTrainingModule):
         model_configs = self.parse_model_configs(model_paths, model_id_with_origin_paths, enable_fp8_training=False)
         if audio_processor_config is not None:
             audio_processor_config = ModelConfig(model_id=audio_processor_config.split(":")[0], origin_file_pattern=audio_processor_config.split(":")[1])
-        self.pipe = WanVideoPipeline.from_pretrained(torch_dtype=torch.bfloat16, device="cpu", model_configs=model_configs, audio_processor_config=audio_processor_config)
+        self.pipe = WanVideoPipeline.from_pretrained(torch_dtype=torch.bfloat16, device="cpu", model_configs=model_configs, audio_processor_config=audio_processor_config, redirect_common_files=False)
         
+        if "vace_fuser" in trainable_models and self.pipe.vace_fuser is None:
+            self.pipe.vace_fuser = VaceFuser(
+                num_vace_blocks=len(self.pipe.vace.vace_layers),
+                dim=self.pipe.dit.dim,
+                num_heads=self.pipe.dit.num_heads,
+            ).to(torch.bfloat16).requires_grad_(True)
+
         # Training mode
         self.switch_pipe_to_training_mode(
             self.pipe, trainable_models,

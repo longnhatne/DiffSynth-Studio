@@ -28,8 +28,8 @@ char1_reference_image = Image.open("data/f5_multiVACE/character_images/mathilda/
 char2_reference_image = Image.open("data/f5_multiVACE/character_images/lambert/1.png").resize((832, 480))
 
 control_video = [control_video]
-char_masks = [char1_mask, char2_mask]
-char_reference_images = [char1_reference_image, char2_reference_image]
+char_masks = [char1_mask]#, char2_mask]
+char_reference_images = [char1_reference_image]#, char2_reference_image]
 # video = pipe(
 #     prompt="两只可爱的橘猫戴上拳击手套，站在一个拳击台上搏斗。",
 #     negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
@@ -49,7 +49,7 @@ char_reference_images = [char1_reference_image, char2_reference_image]
 
 # Depth video + Reference image -> Video
 video = pipe(
-    prompt="两只可爱的橘猫戴上拳击手套，站在一个拳击台上搏斗。",
+    prompt="A girl eating hamberger in a restaurant.",
     negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
     vace_video=control_video,
     vace_reference_image=char_reference_images,

@@ -84,9 +84,6 @@ class WanVideoPipeline(BasePipeline):
             WanVideoPostUnit_S2V(),
         ]
         self.model_fn = model_fn_wan_video
-
-        if self.vace_fuser is None:
-            self.vace_fuser = VaceFuser().to(torch_dtype)
     
     def load_lora(
         self,
@@ -910,10 +907,16 @@ class WanVideoUnit_VACE(PipelineUnit):
             pipe.load_models_to_device(["vae"])
                         
             vace_context_list = []
-            for idx in range(len(vace_video_mask)):
-                vace_video_ = random.choice(vace_video)
-                vace_video_mask_ = vace_video_mask[idx]
-                vace_reference_image_ = vace_reference_image[idx]
+            for idx in range(len(vace_video_mask)+1):
+                if idx == len(vace_video_mask): 
+                    # Blackboard to draw everything on
+                    vace_video_ = None
+                    vace_video_mask_ = None
+                    vace_reference_image_ = None
+                else:
+                    vace_video_ = random.choice(vace_video)
+                    vace_video_mask_ = vace_video_mask[idx]
+                    vace_reference_image_ = vace_reference_image[idx]
                 
                 if vace_video_ is None:
                     vace_video_ = torch.zeros((1, 3, num_frames, height, width), dtype=pipe.torch_dtype, device=pipe.device)
@@ -1565,8 +1568,9 @@ def model_fn_wan_video(
     
     # vace_context = vace_context[0]
     # print('x', x.shape, 'vace_context', vace_context.shape)
-        
+
     if vace_context is not None:
+        vace_context = random.sample(vace_context[:-1], k=min(random.randint(1, len(vace_context[:-1])), 2)) + [vace_context[-1]]
         vace_hints = []
         for vace_context_ in vace_context:
             vace_hints_ = vace(
@@ -1578,7 +1582,7 @@ def model_fn_wan_video(
 
         vace_hints = vace_fuser(vace_hints)
 
-    
+
     # blocks
     if use_unified_sequence_parallel:
         if dist.is_initialized() and dist.get_world_size() > 1:
