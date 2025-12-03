@@ -146,10 +146,31 @@ class VaceFuser(torch.nn.Module):
 
     def forward(
         self, vace_hints_list: list[torch.Tensor],
+        use_gradient_checkpointing_offload: bool = False,
+        use_gradient_checkpointing: bool = False,
     ):
+        def create_custom_forward(module):
+            def custom_forward(*inputs):
+                return module(*inputs)
+            return custom_forward
+
         x = vace_hints_list[-1]
         for i in range(len(vace_hints_list)-1):
-            x = self.fuser(x, vace_hints_list[i])
+            if use_gradient_checkpointing_offload:
+                with torch.autograd.graph.save_on_cpu():
+                    x = torch.utils.checkpoint.checkpoint(
+                        create_custom_forward(self.fuser),
+                        x, vace_hints_list[i],
+                        use_reentrant=False,
+                    )
+            elif use_gradient_checkpointing:
+                x = torch.utils.checkpoint.checkpoint(
+                    create_custom_forward(self.fuser),
+                    x, vace_hints_list[i],
+                    use_reentrant=False,
+                )
+            else:
+                x = self.fuser(x, vace_hints_list[i])
         return x
 
 class VaceWanModelDictConverter:

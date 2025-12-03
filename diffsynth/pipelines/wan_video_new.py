@@ -1580,7 +1580,9 @@ def model_fn_wan_video(
             )
             vace_hints.append(vace_hints_)
 
-        vace_hints = vace_fuser(vace_hints)
+        vace_hints = vace_fuser(vace_hints,
+                                use_gradient_checkpointing_offload=use_gradient_checkpointing_offload,
+                                use_gradient_checkpointing=use_gradient_checkpointing)
 
 
     # blocks
