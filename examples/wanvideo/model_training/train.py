@@ -51,7 +51,7 @@ class WanTrainingModule(DiffusionTrainingModule):
         
     def forward_preprocess(self, data):
         # CFG-sensitive parameters
-        inputs_posi = {"prompt": data["prompt"] if "prompt" in data else ""}
+        inputs_posi = {"prompt": data["prompt"]}
         inputs_nega = {}
         
         # CFG-unsensitive parameters
