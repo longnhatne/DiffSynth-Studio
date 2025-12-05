@@ -882,21 +882,36 @@ class WanVideoUnit_SpeedControl(PipelineUnit):
         return {"motion_bucket_id": motion_bucket_id}
 
 
-
+# Updated WanVideoUnit_VACE for VACE_FUSER
+debug = False
 class WanVideoUnit_VACE(PipelineUnit):
     def __init__(self):
         super().__init__(
-            input_params=("vace_video", "vace_video_mask", "vace_reference_image", "vace_scale", "height", "width", "num_frames", "tiled", "tile_size", "tile_stride"),
+            input_params=("input_video", "vace_video", "vace_video_mask", "vace_reference_image", "vace_scale", "height", "width", "num_frames", "tiled", "tile_size", "tile_stride"),
             onload_model_names=("vae",)
         )
 
     def process(
         self,
         pipe: WanVideoPipeline,
+        input_video,
         vace_video, vace_video_mask, vace_reference_image, vace_scale,
         height, width, num_frames,
         tiled, tile_size, tile_stride
     ):
+        # Debug
+        if debug:
+            import torchvision
+            debug_dir = "/home/mbzuai/nhat_working_space/DiffSynth-Studio/debug_vace_output"
+            os.makedirs(debug_dir, exist_ok=True)
+
+        if vace_video_mask is not None:
+            combine_mask = torch.zeros((1, 3, num_frames, height, width), dtype=pipe.torch_dtype, device=pipe.device)
+            for idx in range(len(vace_video_mask)):
+                combine_mask += pipe.preprocess_video(vace_video_mask[idx], min_value=0, max_value=1)
+            combine_mask = (combine_mask > 0).to(dtype=pipe.torch_dtype)
+        
+        input_video = pipe.preprocess_video(input_video)
         if vace_video is not None or vace_video_mask is not None or vace_reference_image is not None:
             if not isinstance(vace_video_mask, list):
                 vace_video_mask = [vace_video_mask]
@@ -905,18 +920,69 @@ class WanVideoUnit_VACE(PipelineUnit):
             if not isinstance(vace_video, list):
                 vace_video = [vace_video]
             pipe.load_models_to_device(["vae"])
-                        
-            vace_context_list = []
-            for idx in range(len(vace_video_mask)+1):
-                if idx == len(vace_video_mask): 
-                    # Blackboard to draw everything on
-                    vace_video_ = None
-                    vace_video_mask_ = None
-                    vace_reference_image_ = None
-                else:
-                    vace_video_ = random.choice(vace_video)
-                    vace_video_mask_ = vace_video_mask[idx]
-                    vace_reference_image_ = vace_reference_image[idx]
+
+            # Helper function to save video tensor
+            if debug:
+                def save_video_tensor(tensor, save_path, name_prefix="video", fps=8):
+                    # tensor shape: (B, C, T, H, W)
+                    tensor_cpu = tensor.detach().cpu().float()
+                    # Clamp to [0, 1] range
+                    tensor_cpu = torch.clamp((tensor_cpu + 1) / 2, 0, 1)
+                    for b in range(tensor_cpu.shape[0]):
+                        # Convert from (C, T, H, W) to (T, H, W, C) for video writing
+                        video_data = tensor_cpu[b].permute(1, 2, 3, 0)  # (T, H, W, C)
+                        # Convert to uint8
+                        video_data = (video_data * 255).to(torch.uint8)
+                        # Save as video file
+                        video_path = os.path.join(save_path, f"{name_prefix}_b{b}.mp4")
+                        torchvision.io.write_video(video_path, video_data, fps=fps)
+
+            # Process global vace_context
+            global_vace_video = input_video * (1 - combine_mask)
+
+            # Debug: Save global variables
+            if debug:
+                print(f"[DEBUG] Saving global_vace_video, combine_mask, and global_reference_image to {debug_dir}")
+                save_video_tensor(global_vace_video, debug_dir, "global_vace_video")
+                save_video_tensor(combine_mask, debug_dir, "global_combine_mask")
+
+            global_inactive = global_vace_video * (1 - combine_mask) + 0 * combine_mask
+            global_reactive = global_vace_video * combine_mask + 0 * (1 - combine_mask)
+            global_inactive = pipe.vae.encode(global_inactive, device=pipe.device, tiled=tiled, tile_size=tile_size, tile_stride=tile_stride).to(dtype=pipe.torch_dtype, device=pipe.device)
+            global_reactive = pipe.vae.encode(global_reactive, device=pipe.device, tiled=tiled, tile_size=tile_size, tile_stride=tile_stride).to(dtype=pipe.torch_dtype, device=pipe.device)
+            global_vace_video_latents = torch.concat((global_inactive, global_reactive), dim=1)
+
+            global_vace_mask_latents = rearrange(combine_mask[0,0], "T (H P) (W Q) -> 1 (P Q) T H W", P=8, Q=8)
+            global_vace_mask_latents = torch.nn.functional.interpolate(global_vace_mask_latents, size=((global_vace_mask_latents.shape[2] + 3) // 4, global_vace_mask_latents.shape[3], global_vace_mask_latents.shape[4]), mode='nearest-exact')
+
+            # Empty reference image for global vace_context
+            global_reference_image = [torch.zeros((3, 1, height, width), dtype=pipe.torch_dtype, device=pipe.device)]
+
+            # Debug: Save global_reference_image
+            if debug:
+                for i, ref_img in enumerate(global_reference_image):
+                    ref_img_cpu = ref_img.detach().cpu().float()
+                    ref_img_cpu = torch.clamp((ref_img_cpu + 1) / 2, 0, 1)
+                    # ref_img has shape (C, T, H, W), squeeze temporal dimension and permute to (H, W, C)
+                    ref_img_np = (ref_img_cpu.squeeze(1).permute(1, 2, 0).numpy() * 255).astype('uint8')
+                    img = Image.fromarray(ref_img_np)
+                    img.save(os.path.join(debug_dir, f"global_reference_image_{i}.png"))
+
+            global_ref_latents = pipe.vae.encode(global_reference_image, device=pipe.device, tiled=tiled, tile_size=tile_size, tile_stride=tile_stride).to(dtype=pipe.torch_dtype, device=pipe.device)
+            global_ref_latents = torch.concat((global_ref_latents, torch.zeros_like(global_ref_latents)), dim=1)
+            global_ref_latents = [u.unsqueeze(0) for u in global_ref_latents]
+
+            global_vace_video_latents = torch.concat((*global_ref_latents, global_vace_video_latents), dim=2)
+            global_vace_mask_latents = torch.concat((torch.zeros_like(global_vace_mask_latents[:, :, :1]), global_vace_mask_latents), dim=2)
+            
+            global_vace_context = torch.concat((global_vace_video_latents, global_vace_mask_latents), dim=1)
+            vace_context_list = [global_vace_context]
+            
+            # Process local vace_context
+            for idx in range(len(vace_video_mask)):
+                vace_video_ = random.choice(vace_video)
+                vace_video_mask_ = vace_video_mask[idx]
+                vace_reference_image_ = vace_reference_image[idx]
                 
                 if vace_video_ is None:
                     vace_video_ = torch.zeros((1, 3, num_frames, height, width), dtype=pipe.torch_dtype, device=pipe.device)
@@ -928,6 +994,14 @@ class WanVideoUnit_VACE(PipelineUnit):
                 else:
                     vace_video_mask_ = pipe.preprocess_video(vace_video_mask_, min_value=0, max_value=1)
                 
+                vace_video_ = vace_video_ * vace_video_mask_
+
+                # Debug: Save local vace_video_ and vace_video_mask_
+                if debug:
+                    print(f"[DEBUG] Saving local context {idx}: vace_video_ and vace_video_mask_")
+                    save_video_tensor(vace_video_, debug_dir, f"local_{idx}_vace_video")
+                    save_video_tensor(vace_video_mask_, debug_dir, f"local_{idx}_vace_video_mask")
+
                 inactive = vace_video_ * (1 - vace_video_mask_) + 0 * vace_video_mask_
                 reactive = vace_video_ * vace_video_mask_ + 0 * (1 - vace_video_mask_)
                 inactive = pipe.vae.encode(inactive, device=pipe.device, tiled=tiled, tile_size=tile_size, tile_stride=tile_stride).to(dtype=pipe.torch_dtype, device=pipe.device)
@@ -938,7 +1012,8 @@ class WanVideoUnit_VACE(PipelineUnit):
                 vace_mask_latents = torch.nn.functional.interpolate(vace_mask_latents, size=((vace_mask_latents.shape[2] + 3) // 4, vace_mask_latents.shape[3], vace_mask_latents.shape[4]), mode='nearest-exact')
                 
                 if vace_reference_image_ is None:
-                    pass
+                    if debug:
+                        print(f"[DEBUG] Local context {idx}: vace_reference_image_ is None")
                 else:
                     if not isinstance(vace_reference_image_,list):
                         vace_reference_image_ = [vace_reference_image_]
@@ -950,7 +1025,18 @@ class WanVideoUnit_VACE(PipelineUnit):
                     for j in range(f):
                         new_vace_ref_images.append(vace_reference_image_[0, :, j:j+1])
                     vace_reference_image_ = new_vace_ref_images
-                    
+
+                    # Debug: Save local vace_reference_image_
+                    if debug:
+                        print(f"[DEBUG] Saving local context {idx}: vace_reference_image_ ({len(vace_reference_image_)} frames)")
+                        for j, ref_img in enumerate(vace_reference_image_):
+                            ref_img_cpu = ref_img.detach().cpu().float()
+                            ref_img_cpu = torch.clamp((ref_img_cpu + 1) / 2, 0, 1)
+                            # ref_img has shape (C, T, H, W), squeeze temporal dimension and permute to (H, W, C)
+                            ref_img_np = (ref_img_cpu.squeeze(1).permute(1, 2, 0).numpy() * 255).astype('uint8')
+                            img = Image.fromarray(ref_img_np)
+                            img.save(os.path.join(debug_dir, f"local_{idx}_vace_reference_image_{j}.png"))
+
                     vace_reference_latents = pipe.vae.encode(vace_reference_image_, device=pipe.device, tiled=tiled, tile_size=tile_size, tile_stride=tile_stride).to(dtype=pipe.torch_dtype, device=pipe.device)
                     vace_reference_latents = torch.concat((vace_reference_latents, torch.zeros_like(vace_reference_latents)), dim=1)
                     vace_reference_latents = [u.unsqueeze(0) for u in vace_reference_latents]
@@ -960,6 +1046,11 @@ class WanVideoUnit_VACE(PipelineUnit):
                 
                 vace_context = torch.concat((vace_video_latents, vace_mask_latents), dim=1)
                 vace_context_list.append(vace_context)
+            
+            if debug:
+                import sys
+                sys.exit()
+
             return {"vace_context": vace_context_list, "vace_scale": vace_scale}
         else:
             return {"vace_context": None, "vace_scale": vace_scale}
@@ -1570,7 +1661,6 @@ def model_fn_wan_video(
     # print('x', x.shape, 'vace_context', vace_context.shape)
 
     if vace_context is not None:
-        vace_context = random.sample(vace_context[:-1], k=min(random.randint(1, len(vace_context[:-1])), 2)) + [vace_context[-1]]
         vace_hints = []
         for vace_context_ in vace_context:
             vace_hints_ = vace(

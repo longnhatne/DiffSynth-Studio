@@ -154,8 +154,10 @@ class VaceFuser(torch.nn.Module):
                 return module(*inputs)
             return custom_forward
 
-        x = vace_hints_list[-1]
-        for i in range(len(vace_hints_list)-1):
+        x = vace_hints_list[0] # global vace_context
+
+        # Process local vace_context
+        for i in range(1, len(vace_hints_list)):
             if use_gradient_checkpointing_offload:
                 with torch.autograd.graph.save_on_cpu():
                     x = torch.utils.checkpoint.checkpoint(

@@ -1,6 +1,7 @@
 import torch, torchvision, imageio, os, json, pandas
 import imageio.v3 as iio
 from PIL import Image
+import random
 
 
 
@@ -330,6 +331,16 @@ class UnifiedDataset(torch.utils.data.Dataset):
                             data[key] = [self.main_data_operator(item) for item in list_items]
                         else:
                             data[key] = self.main_data_operator(data[key])
+
+        # Select random characters for vace_context here, the current gpus can handle 2 characters in training
+        # Randomly select at most 2 indices from the list data['vace_video_mask']
+        if "vace_video_mask" in data and isinstance(data["vace_video_mask"], list):
+            vace_video_mask_list = data["vace_video_mask"]
+            if len(vace_video_mask_list) > 2:
+                selected_indices = random.sample(range(len(vace_video_mask_list)), 2)
+                data["vace_video_mask"] = [vace_video_mask_list[i] for i in selected_indices]
+                data["vace_reference_image"] = [data["vace_reference_image"][i] for i in selected_indices]
+        
         return data
 
     def __len__(self):

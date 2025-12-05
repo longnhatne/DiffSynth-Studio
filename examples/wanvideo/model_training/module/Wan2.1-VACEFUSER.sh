@@ -1,4 +1,4 @@
-accelerate launch examples/wanvideo/model_training/train.py \
+CUDA_VISIBLE_DEVICES=0 accelerate launch examples/wanvideo/model_training/train.py \
   --dataset_base_path data/f5_multiVACE/ \
   --dataset_metadata_path data/f5_multiVACE/metadata_vace.csv \
   --data_file_keys "video,vace_video,vace_video_mask,vace_reference_image" \
